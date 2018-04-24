@@ -48,23 +48,6 @@ func (chunk *Chunk) Read(fid, offset, size uint32) (data []byte, err error) {
 	return
 }
 
-func (chunk *Chunk) size() int64 {
-	if chunk.fp == nil {
-		panic("chunk get file size failed: fp is nil")
-	}
-
-	fi, err := chunk.fp.Stat()
-	if err != nil {
-		panic("chunk get file size failed:" + err.Error())
-	}
-	return fi.Size()
-}
-func (chunk *Chunk) Close() {
-	if chunk.fp != nil {
-		chunk.fp.Close()
-	}
-}
-
 func (chunk *Chunk) UnActive() {
 
 	path := fmt.Sprintf("%s/%d", chunk.Path, chunk.Id)
@@ -81,6 +64,24 @@ func (chunk *Chunk) UnActive() {
 
 	}
 	return
+}
+
+func (chunk *Chunk) Close() {
+	if chunk.fp != nil {
+		chunk.fp.Close()
+	}
+}
+
+func (chunk *Chunk) size() int64 {
+	if chunk.fp == nil {
+		panic("chunk get file size failed: fp is nil")
+	}
+
+	fi, err := chunk.fp.Stat()
+	if err != nil {
+		panic("chunk get file size failed:" + err.Error())
+	}
+	return fi.Size()
 }
 
 func (chunk *Chunk) load() {
