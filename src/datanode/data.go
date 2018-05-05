@@ -12,9 +12,7 @@ type IDataManager interface {
 type DataManager struct {
 	workChunk     *Chunk
 	workChunkLock sync.Mutex
-
 	switchLock sync.RWMutex
-
 	readOnlyChunks map[uint32]*Chunk
 	snapshot       SnapShot
 
@@ -22,21 +20,27 @@ type DataManager struct {
 	dir   string
 }
 
+func (dm *DataManager)NewDataManager() {
+
+}
+
 func (dm *DataManager) loadChunks() {
 
 }
 
-//切换的workChunk的时候与读请求互斥。（可优化）。
+//切换的workChunk的时候与读请求互斥,写请求也互斥。（可优化）。
 func (dm *DataManager) triggerSwitchWorkChunk() {
 	dm.switchLock.Lock()
 	defer dm.switchLock.Unlock()
 
+	dm.workChunkLock.Lock()
 	//1将workChunk变为普通chunk
 	dm.workChunk.UnActive()
 	//2将workChunk转移到readOnlyChunks中
 	dm.readOnlyChunks[dm.workChunk.Id] = dm.workChunk
 	//3创建新的workChunk
 	dm.workChunk = &Chunk{Id: dm.maxId + 1, Path: dm.dir, isActive: true}
+	dm.workChunkLock.Unlock()
 }
 
 //implenment interface IDataManager
