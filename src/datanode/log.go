@@ -2,11 +2,11 @@ package datanode
 
 import (
 	"os"
-	"github.com/coreos/etcd/raft/raftpb"
 	"datanode/raftlogpb"
+	"github.com/coreos/etcd/raft/raftpb"
+	"github.com/gogo/protobuf/proto"
 )
 
-var _=raftlogpb.LBO{}
 
 type ILogManager interface {
 	Append(data []byte) error
@@ -21,9 +21,7 @@ type ILogManager interface {
 //More importantly.If the log is very large.We use to load the log between snapshot and last index.
 //so our inner snapshot needs to include LBO.
 type LBO struct {
-	offset int64
-	size uint32
-	entry raftpb.Entry
+	raftlogpb.LBO
 }
 
 type LogManager struct {
@@ -31,7 +29,15 @@ type LogManager struct {
 	file LogFile
 }
 
-func (lm *LogManager) Append(data []byte) error{
+func (lm *LogManager) Append(entry *raftpb.Entry) error{
+	offset:=int64(0)
+	size:=uint32(12+len(entry.Data))
+
+	lbo:=raftlogpb.LBO{Offset:&offset,Size:&size,Entry:entry}
+	data,err:=proto.Marshal(&lbo)
+	if err!=nil{
+		return err
+	}
 	return lm.file.append(data)
 
 }
