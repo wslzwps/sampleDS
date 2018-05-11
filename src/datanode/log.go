@@ -3,6 +3,7 @@ package datanode
 import (
 	"errors"
 	"os"
+	"github.com/coreos/etcd/raft/raftpb"
 )
 
 type ILogManager interface {
@@ -11,6 +12,17 @@ type ILogManager interface {
 	Last() (b []byte, err error)
 	Append(data []byte) error
 	Compact()
+}
+
+//LBO means: [Log Binary Object]
+//We've wrapped a layer above the Entry
+//Added offset and size.This way we can easily load the specified log by offset
+//More importantly.If the log is very large.We use to load the log between snapshot and last index.
+//so our inner snapshot needs to include LBO.
+type LBO struct {
+	offset int64
+	size uint32
+	entry raftpb.Entry
 }
 
 type LogManager struct {
@@ -23,7 +35,6 @@ func (lm *LogManager) Append(data []byte) error{
 
 }
 func (lm *LogManager) Compact() {
-	lm.file.truncate()
 }
 func (lm *LogManager) Index(i uint64) (b []byte, err error) {
 	if len(lm.file.buf) == 0 {
@@ -65,40 +76,23 @@ func newLogFile(path string) (file *LogFile, err error) {
 	return
 }
 
-func (file *LogFile) close() {
-	file.fd.Close()
-}
+
 
 func (file *LogFile) append(b []byte) (err error) {
-	if len(b) != int(file.prelogsize) {
-		err = errors.New("unexcept log size please check that.")
+	_, err = file.fd.Write(b)
+	if err!=nil{
 		return
 	}
 
-	_, err = file.fd.Write(b)
 	file.buf = append(file.buf, b)
 	return
 }
 
-func (file *LogFile) reload()(err error){
-	fi,err:=file.fd.Stat()
-	if err!=nil {
-		return
-	}
-
-	blockcount:=fi.Size()/int64(file.prelogsize)
-	
-	for i:=int64(0);i<blockcount;i++{
-		offset:=blockcount*i
-		if b,err:=file.read(offset,file.prelogsize);err!=nil{
-			break
-		}else{
-			file.buf=append(file.buf,b)
-		}
-
-	}
+func (file *LogFile) reloadFrom(offset int64)(err error){
+ 	if b,err:=file.read(offset,file.prelogsize);err==nil{
+ 		file.buf=append(file.buf,b)
+ 	}
 	return
-
 }
 
 func (file *LogFile) read(offset int64, size uint32) ([]byte, error) {
@@ -107,6 +101,7 @@ func (file *LogFile) read(offset int64, size uint32) ([]byte, error) {
 	return b, err
 }
 
-func (file *LogFile) truncate() error {
-	return file.fd.Truncate(0)
+
+func (file *LogFile) close() {
+	file.fd.Close()
 }

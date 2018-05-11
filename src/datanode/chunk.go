@@ -5,15 +5,16 @@ import (
 	"os"
 )
 
+//Chunk is the abstraction of the container file.
+//For user. chunk only provides read and write functions. and users do not need to pay attention
+//to when to create a file .The file will be automatically created.
+//There are two types of chunk. active[Read-write] and unactive[Read-only].
+//DataManager has only one [active chunk] and multiple [unactive chunk]
 type Chunk struct {
 	Id   uint32
 	Path string
 
 	fp *os.File
-
-	//读写锁是否有存在的意义?，对于appendOnly的文件。
-	//lock sync.RWMutex
-
 	isActive bool
 	mustSync bool
 }
@@ -24,7 +25,7 @@ func (chunk *Chunk) Write(data []byte, size uint32) (fid, offset uint32, err err
 		return
 	}
 
-	chunk.load()
+	chunk.loadfile()
 	fid = chunk.Id
 
 	if chunk.isActive == true {
@@ -37,7 +38,7 @@ func (chunk *Chunk) Write(data []byte, size uint32) (fid, offset uint32, err err
 }
 
 func (chunk *Chunk) Read(fid, offset, size uint32) (data []byte, err error) {
-	chunk.load()
+	chunk.loadfile()
 	if fid != chunk.Id {
 		err = MisUpChunkIdErr
 		return
@@ -74,17 +75,17 @@ func (chunk *Chunk) Close() {
 
 func (chunk *Chunk) size() int64 {
 	if chunk.fp == nil {
-		panic("chunk get file size failed: fp is nil")
+		panic("chunk: fp is nil")
 	}
 
 	fi, err := chunk.fp.Stat()
 	if err != nil {
-		panic("chunk get file size failed:" + err.Error())
+		panic("chunk:" + err.Error())
 	}
 	return fi.Size()
 }
 
-func (chunk *Chunk) load() {
+func (chunk *Chunk) loadfile() {
 	if chunk.fp != nil {
 		return
 	}
@@ -101,7 +102,7 @@ func (chunk *Chunk) load() {
 	}
 
 	if err != nil {
-		panic("load chunk failed:" + err.Error())
+		panic("Load chunk failed:" + err.Error())
 	}
 	return
 }
