@@ -15,7 +15,7 @@ func TestCreateChunkSuccess(t *testing.T) {
 	return
 	path := "/home/cintell/newds/src/datanode"
 	chunk := &Chunk{Id: 1, Path: path, isActive: true}
-	chunk.load()
+	chunk.loadfile()
 	b1 := []byte("21232fdsafdsagsagfdfas")
 	b2 := []byte("wslzwps")
 	b3 := []byte("lizhi195")
