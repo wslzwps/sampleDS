@@ -3,6 +3,7 @@ package datanode
 import (
 	"fmt"
 	"testing"
+	"os"
 )
 
 func TestCreateChunkFailed(t *testing.T) {
@@ -11,6 +12,7 @@ func TestCreateChunkFailed(t *testing.T) {
 
 //先调通，后整理case
 func TestCreateChunkSuccess(t *testing.T) {
+	return
 	path := "/home/cintell/newds/src/datanode"
 	chunk := &Chunk{Id: 1, Path: path, isActive: true}
 	chunk.load()
@@ -34,6 +36,8 @@ func TestCreateChunkSuccess(t *testing.T) {
 
 	data, err = chunk.Read(fid2, offset2, uint32(len(b3)))
 	fmt.Println(string(data), err)
+	chunk.Close()
+	os.Remove(chunk.Path)
 }
 
 func TestChunkWrite(t *testing.T) {

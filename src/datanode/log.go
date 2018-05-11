@@ -1,75 +1,112 @@
 package datanode
 
-import(
+import (
+	"errors"
 	"os"
-	)
+)
 
 type ILogManager interface {
-	Append()
+	Index(i uint64) (b []byte, err error)
+	First() (b []byte, err error)
+	Last() (b []byte, err error)
+	Append(data []byte) error
 	Compact()
-	ApplySnapShot()
-	SnapShot()
 }
 
 type LogManager struct {
-	lf LogFile
+	path string
+	file LogFile
 }
 
-func (lm *LogManager) Append(data []byte) {
-	lm.lf.Append(data)
+func (lm *LogManager) Append(data []byte) error{
+	return lm.file.append(data)
 
 }
 func (lm *LogManager) Compact() {
-
+	lm.file.truncate()
 }
-func (lm *LogManager) ApplySnapShot() {
-
-}
-func (lm *LogManager) CreateSnapShot() {
-
-}
-func (lm *LogManager) SnapShot() {
-
-}
-
-type Buffer []byte
-type LogFile struct {
-	path       string
-	fd   *os.File
-	prelogsize int
-	buf   []Buffer
-}
-
-func newLogFile(){
-
-}
-
-func (lf *LogFile) create() (err error){
-	rl.fd,err=os.OpenFile(path,os.O_RDWR|os.O_APPEND|os.O_CREATE,0777)
-}
-
-func (lf *LogFile) Append(log []byte) (err error){
-	if len(log)!=lf.prelogsize{
-		//return "unexcept log size please check it"
+func (lm *LogManager) Index(i uint64) (b []byte, err error) {
+	if len(lm.file.buf) == 0 {
+		err = errors.New("Empty log buffer")
+		return
 	}
-	_,err=lf.fd.Write(log)
-	lf.buf=append(lf.buf,log)
-}
-func (lf *LogFile) Read(index uint32) ([]byte,error){
-	//将buf[0]转化为entry的结构
-	//entry:=unmarsh(bufer[0])
-	//需要判断index是否在first和last之间
-	//offset:=(index-entry.index)*lf.prelogsize
-	//b:=make([]byte,lf.prelogsize)
-	//_,err:=lf.fd.ReadAt(b,offset)
-	//return b,err
-}
-func (lf *LogFile) Truncate(index uint32) {
-	//如果index大于last。将文件truncate为0
-	//lf.buf=make([]Buffer,0)
 
-	//如果Index小于first，什么也不做。
+	if i > uint64(len(lm.file.buf)) {
+		err = errors.New("Invalid index")
+		return
+	}
 
-	//如果index位于first和last之间，则按偏移截取文件。
-	//lf.buf原有数据清空。重新加载截取后的文件。
+	b = lm.file.buf[i]
+	return
+}
+
+func (lm *LogManager) First() (b []byte, err error) {
+	return lm.Index(0)
+}
+func (lm *LogManager) Last() (b []byte, err error) {
+	return lm.Index(uint64(len(lm.file.buf) - 1))
+}
+
+
+
+//**********************************************************************************
+type Buffer []byte
+
+type LogFile struct {
+	fd         *os.File
+	buf        []Buffer
+	prelogsize uint32
+}
+
+func newLogFile(path string) (file *LogFile, err error) {
+	file = new(LogFile)
+	file.buf = make([]Buffer, 0)
+	file.fd, err = os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
+	return
+}
+
+func (file *LogFile) close() {
+	file.fd.Close()
+}
+
+func (file *LogFile) append(b []byte) (err error) {
+	if len(b) != int(file.prelogsize) {
+		err = errors.New("unexcept log size please check that.")
+		return
+	}
+
+	_, err = file.fd.Write(b)
+	file.buf = append(file.buf, b)
+	return
+}
+
+func (file *LogFile) reload()(err error){
+	fi,err:=file.fd.Stat()
+	if err!=nil {
+		return
+	}
+
+	blockcount:=fi.Size()/int64(file.prelogsize)
+	
+	for i:=int64(0);i<blockcount;i++{
+		offset:=blockcount*i
+		if b,err:=file.read(offset,file.prelogsize);err!=nil{
+			break
+		}else{
+			file.buf=append(file.buf,b)
+		}
+
+	}
+	return
+
+}
+
+func (file *LogFile) read(offset int64, size uint32) ([]byte, error) {
+	b := make([]byte, size)
+	_, err := file.fd.ReadAt(b, offset)
+	return b, err
+}
+
+func (file *LogFile) truncate() error {
+	return file.fd.Truncate(0)
 }
