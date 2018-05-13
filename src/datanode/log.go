@@ -27,10 +27,16 @@ type LBO struct {
 type LogManager struct {
 	path string
 	file LogFile
+	lbos []LBO
 }
 
-func (lm *LogManager) Append(entry *raftpb.Entry) error{
-	offset:=int64(0)
+//需要多种情况。包含网络隔离带来的日志不一致。
+func (lm *LogManager)MaybeAppend(){
+
+}
+
+func (lm *LogManager) append(entry *raftpb.Entry) (err error){
+	offset,_:=lm.file.size()
 	size:=uint32(12+len(entry.Data))
 
 	lbo:=raftlogpb.LBO{Offset:&offset,Size:&size,Entry:entry}
@@ -38,8 +44,11 @@ func (lm *LogManager) Append(entry *raftpb.Entry) error{
 	if err!=nil{
 		return err
 	}
-	return lm.file.append(data)
 
+	if err=lm.file.append(data);err==nil {
+		lm.lbos=append(lm.lbos, lbo)
+	}
+	return
 }
 
 func (lm *LogManager) Index(i uint64) (b []byte, err error) {
@@ -51,25 +60,19 @@ func (lm *LogManager) First() (b []byte, err error) {
 	return lm.Index(0)
 }
 func (lm *LogManager) Last() (b []byte, err error) {
-	//return lm.Index(uint64(len(lm.file.buf) - 1))
 	return
 }
 
 
 
 //**********************************************************************************
-type Buffer []byte
-
 type LogFile struct {
 	fd         *os.File
-	//buf        []Buffer
-	prelogsize uint32
 }
 
 func newLogFile(path string) (file *LogFile, err error) {
 	file = new(LogFile)
-	//file.buf = make([]Buffer, 0)
-	file.fd, err = os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
+	file.fd, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0777)
 	return
 }
 
@@ -77,11 +80,6 @@ func newLogFile(path string) (file *LogFile, err error) {
 
 func (file *LogFile) append(b []byte) (err error) {
 	_, err = file.fd.Write(b)
-	if err!=nil{
-		return
-	}
-
-	//file.buf = append(file.buf, b)
 	return
 }
 
@@ -92,6 +90,19 @@ func (file *LogFile) read(offset int64, size uint32) ([]byte, error) {
 	return b, err
 }
 
+func (file *LogFile)size()(size int64,err error){
+	fi,err:=file.fd.Stat()
+	if err!=nil{
+		return
+	}
+	size=fi.Size()
+	return
+}
+
+
+func (file *LogFile)truncate(lo,hi int64){
+
+}
 
 func (file *LogFile) close() {
 	file.fd.Close()
