@@ -1,12 +1,14 @@
 package datanode
 
 import (
-	"os"
 	"datanode/raftlogpb"
+	"encoding/binary"
+	"errors"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/gogo/protobuf/proto"
+	"os"
+	"fmt"
 )
-
 
 type ILogManager interface {
 	Append(data []byte) error
@@ -20,88 +22,194 @@ type ILogManager interface {
 //Added offset and size.This way we can easily load the specified log by offset
 //More importantly.If the log is very large.We use to load the log between snapshot and last index.
 //so our inner snapshot needs to include LBO.
-type LBO struct {
-	raftlogpb.LBO
-}
+//type LBO struct {
+//	raftlogpb.LBO
+//}
 
 type LogManager struct {
 	path string
-	file LogFile
-	lbos []LBO
+	file *LogFile
+	lbos []raftlogpb.LBO
+}
+
+func NewLogManager(path string) *LogManager {
+	lm := new(LogManager)
+	lm.path = path
+	lm.lbos = make([]raftlogpb.LBO, 0)
+	//todo: error 需要处理下~
+	lm.file, _ = newLogFile(path)
+	return lm
 }
 
 //需要多种情况。包含网络隔离带来的日志不一致。
-func (lm *LogManager)MaybeAppend(){
-
-}
-
-func (lm *LogManager) append(entry *raftpb.Entry) (err error){
-	offset,_:=lm.file.size()
-	size:=uint32(12+len(entry.Data))
-
-	lbo:=raftlogpb.LBO{Offset:&offset,Size:&size,Entry:entry}
-	data,err:=proto.Marshal(&lbo)
-	if err!=nil{
-		return err
+func (lm *LogManager) Append(entries []raftpb.Entry) (err error) {
+	if len(entries) == 0 {
+		return
 	}
 
-	if err=lm.file.append(data);err==nil {
-		lm.lbos=append(lm.lbos, lbo)
+	first := lm.lbos[0].Entry.Index+1
+	last := entries[0].Index + uint64(len(entries)) - 1
+
+	if last < first {
+		return
+	}
+
+	if entries[0].Index < first {
+		entries = entries[first-entries[0].Index:]
+	}
+
+	offset := entries[0].Index - lm.lbos[0].Entry.Index
+	switch {
+	case uint64(len(lm.lbos)) > offset:
+		if offset != 0 {
+			//将文件截断到指定位置.
+			lm.file.truncate(*lm.lbos[offset].Offset)
+		}else{
+			//将文件截到上一次snapshot的位置
+		}
+
+		//然后将所有的entry转化成[]lbo,逐条追加到日志文件
+		newlbos, err := lm.file.append(entries)
+		if err != nil {
+			return err
+		}
+
+		//最后修改内存的数据.
+		lm.lbos = lm.lbos[:offset]
+		lm.lbos = append(lm.lbos, newlbos...)
+	case uint64(len(lm.lbos)) == offset:
+
+		//将所有的entry转化成[]byte,逐条追加到日志文件
+		newlbos, err := lm.file.append(entries)
+		if err != nil {
+			return err
+		}
+		//最后操作内存的数据.
+		lm.lbos = append(lm.lbos, newlbos...)
+	default:
+		panic("missing log entry")
+	}
+
+	return
+
+}
+
+func (lm *LogManager) Index(i uint64) (entry *raftpb.Entry, err error) {
+	firstentry, _ := lm.First()
+	lastentry, _ := lm.Last()
+
+	if i < firstentry.Index || i > lastentry.Index {
+		return nil, errors.New("无效的索引")
+	}
+
+	offset := i - firstentry.Index
+	entry = lm.lbos[offset].Entry
+
+	return
+}
+
+func (lm *LogManager) First() (entry *raftpb.Entry, err error) {
+	if len(lm.lbos) != 0 {
+		entry = lm.lbos[0].Entry
+	} else {
+		err = errors.New("日志是空的")
 	}
 	return
 }
-
-func (lm *LogManager) Index(i uint64) (b []byte, err error) {
+func (lm *LogManager) Last() (entry *raftpb.Entry, err error) {
+	if len(lm.lbos) != 0 {
+		entry = lm.lbos[len(lm.lbos)-1].Entry
+	} else {
+		err = errors.New("日志是空的")
+	}
 
 	return
 }
-
-func (lm *LogManager) First() (b []byte, err error) {
-	return lm.Index(0)
-}
-func (lm *LogManager) Last() (b []byte, err error) {
-	return
-}
-
-
 
 //**********************************************************************************
 type LogFile struct {
-	fd         *os.File
+	fd *os.File
 }
 
 func newLogFile(path string) (file *LogFile, err error) {
 	file = new(LogFile)
-	file.fd, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0777)
+	file.fd, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0777)
 	return
 }
 
+//需要完善错误检查...
+func (file *LogFile) append(entries []raftpb.Entry) (lbos []raftlogpb.LBO,err error) {
+	for _, e := range entries {
+		offset, err := file.size()
+		if err != nil {
+			return nil, err
+		}
+
+		//因为在函数堆栈中,对于每次循环,e这个变量使用的是同一片内存,只是里面赋值不同而已.所以需要新创建一个Entry对象.
+		entry:=new(raftpb.Entry)
+		entry.Type=e.Type
+		entry.Index=e.Index
+		entry.Term=e.Term
+		//下面会变成了深拷贝...
+		entry.Data=append(entry.Data,e.Data...)
+
+		lbo := raftlogpb.LBO{Offset: &offset, Entry: entry}
+
+		b, err := proto.Marshal(&lbo)
+		if err != nil {
+			return nil, err
+		}
+		//fmt.Println("append lbo entry:",lbo)
+		lbos = append(lbos, lbo)
 
 
-func (file *LogFile) append(b []byte) (err error) {
-	_, err = file.fd.Write(b)
+		//先将lbo序列化后的长度加在头部
+		data := make([]byte, 4)
+		binary.BigEndian.PutUint32(data, uint32(len(b)))
+		///然后写数据
+		data = append(data, b...)
+		if _, err = file.fd.Write(data); err != nil {
+			return nil, err
+		}
+	}
+
+	return  lbos,nil
+}
+
+func (file *LogFile) read(offset int64) (lbos []*raftlogpb.LBO, err error) {
+	fsize, _ := file.size()
+
+	for offset < fsize {
+		//需要先读出来头部的长度信息
+		b := make([]byte, 4)
+		_, err = file.fd.ReadAt(b, offset)
+		size := binary.BigEndian.Uint32(b)
+
+		data := make([]byte, size)
+		//根据长度信息,读取剩余的数据
+		offset += 4
+		_, err = file.fd.ReadAt(data, offset)
+		//将lbo对象数据序列化
+		lbo := raftlogpb.LBO{}
+		err=proto.Unmarshal(data, &lbo)
+		lbos = append(lbos, &lbo)
+		fmt.Println("read offset:",offset)
+		offset += int64(size)
+	}
 	return
 }
 
-
-func (file *LogFile) read(offset int64, size uint32) ([]byte, error) {
-	b := make([]byte, size)
-	_, err := file.fd.ReadAt(b, offset)
-	return b, err
-}
-
-func (file *LogFile)size()(size int64,err error){
-	fi,err:=file.fd.Stat()
-	if err!=nil{
+func (file *LogFile) size() (size int64, err error) {
+	fi, err := file.fd.Stat()
+	if err != nil {
 		return
 	}
-	size=fi.Size()
+	size = fi.Size()
 	return
 }
 
-
-func (file *LogFile)truncate(lo,hi int64){
-
+func (file *LogFile) truncate(offset int64) {
+	file.fd.Truncate(offset)
 }
 
 func (file *LogFile) close() {
