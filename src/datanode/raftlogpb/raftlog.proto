@@ -1,0 +1,11 @@
+syntax = "proto2";
+package raftlog_pb;
+
+import "raft.proto";
+
+message LBO
+{
+	required  int64 offset              =1;
+	required  uint32 size               =2;
+	required  raftpb.Entry entry        =3;
+}
