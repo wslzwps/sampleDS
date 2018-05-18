@@ -29,26 +29,33 @@ type ILogManager interface {
 type LogManager struct {
 	path string
 	file *LogFile
-	lbos []raftlogpb.LBO
+	lbos []*raftlogpb.LBO
 }
 
 func NewLogManager(path string) *LogManager {
 	lm := new(LogManager)
 	lm.path = path
-	lm.lbos = make([]raftlogpb.LBO, 0)
+	lm.lbos = make([]*raftlogpb.LBO, 0)
 	//todo: error 需要处理下~
 	lm.file, _ = newLogFile(path)
+	lm.lbos,_=lm.file.read(0)
 	return lm
 }
 
-//需要多种情况。包含网络隔离带来的日志不一致。
+//需要多种情况---网络隔离带来的日志不一致。
 func (lm *LogManager) Append(entries []raftpb.Entry) (err error) {
 	if len(entries) == 0 {
 		return
 	}
+	offset:=uint64(0)
+	first:=uint64(0)
+	last:=uint64(0)
 
-	first := lm.lbos[0].Entry.Index+1
-	last := entries[0].Index + uint64(len(entries)) - 1
+	if len(lm.lbos)!=0 {
+		first = lm.lbos[0].Entry.Index
+		last  = entries[0].Index + uint64(len(entries)) - 1
+	}
+
 
 	if last < first {
 		return
@@ -58,7 +65,10 @@ func (lm *LogManager) Append(entries []raftpb.Entry) (err error) {
 		entries = entries[first-entries[0].Index:]
 	}
 
-	offset := entries[0].Index - lm.lbos[0].Entry.Index
+	if len(lm.lbos)!=0 {
+		offset = entries[0].Index - lm.lbos[0].Entry.Index
+	}
+
 	switch {
 	case uint64(len(lm.lbos)) > offset:
 		if offset != 0 {
@@ -138,7 +148,7 @@ func newLogFile(path string) (file *LogFile, err error) {
 }
 
 //需要完善错误检查...
-func (file *LogFile) append(entries []raftpb.Entry) (lbos []raftlogpb.LBO,err error) {
+func (file *LogFile) append(entries []raftpb.Entry) (lbos []*raftlogpb.LBO,err error) {
 	for _, e := range entries {
 		offset, err := file.size()
 		if err != nil {
@@ -153,9 +163,9 @@ func (file *LogFile) append(entries []raftpb.Entry) (lbos []raftlogpb.LBO,err er
 		//下面会变成了深拷贝...
 		entry.Data=append(entry.Data,e.Data...)
 
-		lbo := raftlogpb.LBO{Offset: &offset, Entry: entry}
+		lbo := &raftlogpb.LBO{Offset: &offset, Entry: entry}
 
-		b, err := proto.Marshal(&lbo)
+		b, err := proto.Marshal(lbo)
 		if err != nil {
 			return nil, err
 		}
