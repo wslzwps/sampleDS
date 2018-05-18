@@ -7,14 +7,13 @@ import (
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/gogo/protobuf/proto"
 	"os"
-	"fmt"
 )
 
 type ILogManager interface {
-	Append(data []byte) error
-	Index(i uint64) (b []byte, err error)
-	First() (b []byte, err error)
-	Last() (b []byte, err error)
+	Append(entries []raftpb.Entry) (err error)
+	Index(i uint64) (entry *raftpb.Entry, err error)
+	First() (entry *raftpb.Entry, err error)
+	Last() (entry *raftpb.Entry, err error)
 }
 
 //LBO means: [Log Binary Object]
@@ -32,14 +31,14 @@ type LogManager struct {
 	lbos []*raftlogpb.LBO
 }
 
-func NewLogManager(path string) *LogManager {
+func NewLogManager(path string) (*LogManager,error) {
 	lm := new(LogManager)
 	lm.path = path
 	lm.lbos = make([]*raftlogpb.LBO, 0)
 	//todo: error 需要处理下~
 	lm.file, _ = newLogFile(path)
 	lm.lbos,_=lm.file.read(0)
-	return lm
+	return lm,nil
 }
 
 //需要多种情况---网络隔离带来的日志不一致。
@@ -71,7 +70,7 @@ func (lm *LogManager) Append(entries []raftpb.Entry) (err error) {
 
 	switch {
 	case uint64(len(lm.lbos)) > offset:
-		if offset != 0 {
+		if offset >= 0 {
 			//将文件截断到指定位置.
 			lm.file.truncate(*lm.lbos[offset].Offset)
 		}else{
@@ -155,14 +154,17 @@ func (file *LogFile) append(entries []raftpb.Entry) (lbos []*raftlogpb.LBO,err e
 			return nil, err
 		}
 
-		//因为在函数堆栈中,对于每次循环,e这个变量使用的是同一片内存,只是里面赋值不同而已.所以需要新创建一个Entry对象.
+		//参考下面的注释
 		entry:=new(raftpb.Entry)
 		entry.Type=e.Type
 		entry.Index=e.Index
 		entry.Term=e.Term
-		//下面会变成了深拷贝...
 		entry.Data=append(entry.Data,e.Data...)
 
+		//lbo这个局部变量在每次循环的时候，里面成员的entry一直地址是不变的，
+		//但是lbo对象本身的地址是变化的,offset成员地址也变化的
+		//可能是因为golang对于局部变量内部的结构体成员地址分配在另外的固定的地方
+		//所以才需要对上边entry做一次深拷贝
 		lbo := &raftlogpb.LBO{Offset: &offset, Entry: entry}
 
 		b, err := proto.Marshal(lbo)
@@ -203,7 +205,7 @@ func (file *LogFile) read(offset int64) (lbos []*raftlogpb.LBO, err error) {
 		lbo := raftlogpb.LBO{}
 		err=proto.Unmarshal(data, &lbo)
 		lbos = append(lbos, &lbo)
-		fmt.Println("read offset:",offset)
+		//fmt.Println("read offset:",offset)
 		offset += int64(size)
 	}
 	return

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"sync"
 	"fmt"
+	"errors"
 )
 
 type IDataManager interface {
@@ -27,6 +28,11 @@ func NewDataManager(path string) (dm *DataManager, err error) {
 	dm.dir=path
 	dm.readOnlyChunks = make(map[uint32]*Chunk)
 
+	//todo
+	//这个地方需要重构。
+	//不应该在启动的时候加载所有的文件
+	//每次读请求过触发文件的加载。
+	//当文件fd个数超过阈值，可以采取关闭一半的方法,使其衰减。
 	if err = dm.loadChunks();err==nil{
 		dm.workChunk=&Chunk{Id:dm.maxId,Path:dm.dir,isActive:true}
 	}
@@ -64,7 +70,7 @@ func (dm *DataManager) loadChunks() (err error) {
 	return
 }
 
-//切换的workChunk的时候与读请求互斥。（可优化）。
+//todo:切换的workChunk的时候与读请求互斥。（可优化）。
 func (dm *DataManager) triggerSwitchWorkChunk() {
 	dm.switchLock.Lock()
 	defer dm.switchLock.Unlock()
@@ -100,12 +106,13 @@ func (dm *DataManager) Read(fid, offset, size uint32) (data []byte, err error) {
 
 	var chunk *Chunk
 	if chunk = dm.findChunk(fid); chunk == nil {
-		//return nil,"chunk not found"
+		return nil,errors.New("chunk not found")
 	}
 
 	return chunk.Read(fid, offset, size)
 }
 
+//todo:如果内存里面没有，就去磁盘上找
 func (dm *DataManager) findChunk(fid uint32) (chunk *Chunk) {
 
 	if v, ok := dm.readOnlyChunks[fid]; ok {
