@@ -12,7 +12,7 @@ It has these top-level messages:
 */
 package raftlogpb
 
-import proto "github.com/golang/protobuf/proto"
+import proto "github.com/gogo/protobuf/proto"
 import fmt "fmt"
 import math "math"
 import raftpb "github.com/coreos/etcd/raft/raftpb"
@@ -26,7 +26,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+//const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
 type LBO struct {
 	Offset           *int64        `protobuf:"varint,1,req,name=offset" json:"offset,omitempty"`

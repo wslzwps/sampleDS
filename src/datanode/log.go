@@ -3,7 +3,6 @@ package datanode
 import (
 	"datanode/raftlogpb"
 	"encoding/binary"
-	"errors"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/gogo/protobuf/proto"
 	"os"
@@ -11,9 +10,9 @@ import (
 
 type ILogManager interface {
 	Append(entries []raftpb.Entry) (err error)
-	Index(i uint64) (entry *raftpb.Entry, err error)
-	First() (entry *raftpb.Entry, err error)
-	Last() (entry *raftpb.Entry, err error)
+	Index(i uint64) (entry *raftpb.Entry)
+	First() (entry *raftpb.Entry)
+	Last() (entry *raftpb.Entry)
 }
 
 //LBO means: [Log Binary Object]
@@ -103,12 +102,15 @@ func (lm *LogManager) Append(entries []raftpb.Entry) (err error) {
 
 }
 
-func (lm *LogManager) Index(i uint64) (entry *raftpb.Entry, err error) {
-	firstentry, _ := lm.First()
-	lastentry, _ := lm.Last()
+func (lm *LogManager) Index(i uint64) (entry *raftpb.Entry) {
+	firstentry:= lm.First()
+	lastentry:= lm.Last()
+	if firstentry==nil||lastentry==nil{
+		return
+	}
 
 	if i < firstentry.Index || i > lastentry.Index {
-		return nil, errors.New("无效的索引")
+		return
 	}
 
 	offset := i - firstentry.Index
@@ -117,21 +119,16 @@ func (lm *LogManager) Index(i uint64) (entry *raftpb.Entry, err error) {
 	return
 }
 
-func (lm *LogManager) First() (entry *raftpb.Entry, err error) {
+func (lm *LogManager) First() (entry *raftpb.Entry) {
 	if len(lm.lbos) != 0 {
 		entry = lm.lbos[0].Entry
-	} else {
-		err = errors.New("日志是空的")
 	}
 	return
 }
-func (lm *LogManager) Last() (entry *raftpb.Entry, err error) {
+func (lm *LogManager) Last() (entry *raftpb.Entry) {
 	if len(lm.lbos) != 0 {
 		entry = lm.lbos[len(lm.lbos)-1].Entry
-	} else {
-		err = errors.New("日志是空的")
 	}
-
 	return
 }
 
