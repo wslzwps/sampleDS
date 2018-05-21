@@ -1,7 +1,7 @@
 package datanode
 
 import (
-	"datanode/raftlogpb"
+	"github.com/wslzwps/sampleDS/src/datanode/raftlogpb"
 	"encoding/binary"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/gogo/protobuf/proto"
