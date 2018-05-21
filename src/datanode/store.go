@@ -32,15 +32,15 @@ const (
 
 func NewStore(basePath string) (store *Store,err error){
 	store=new(Store)
-	store.dm,err=NewDataManager(basePath+"\\data")
+	store.dm,err=NewDataManager(basePath+"/data")
 	if err!=nil{
 		return nil,err
 	}
-	store.lm,err=NewLogManager(basePath+"\\log\\raft1111.log")
+	store.lm,err=NewLogManager(basePath+"/log/raft.log")
 	if err!=nil{
 		return nil,err
 	}
-	store.snapshotter=raftsnap.New(nil,basePath+"\\snapshot")
+	store.snapshotter=raftsnap.New(nil,basePath+"/snapshot")
 	return store,err
 }
 
